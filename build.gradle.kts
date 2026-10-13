@@ -2,4 +2,7 @@
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.compose) apply false
+
+    // Added from Secrets Gradle Plugin documentation
+    alias(libs.plugins.secrets.gradle.plugin) apply false
 }
