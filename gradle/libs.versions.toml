@@ -10,7 +10,7 @@ kotlin = "2.2.10"
 composeBom = "2026.02.01"
 
 # Dependencies added referencing Google Maps Compose and Google Play Services documentation
-mapsCompose = "9.0.0"
+mapsCompose = "7.0.0"
 playServicesLocation = "21.4.0"
 
 # Version added referencing Secrets Gradle Plugin documentation
