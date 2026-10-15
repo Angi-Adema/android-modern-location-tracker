@@ -31,11 +31,62 @@ import androidx.compose.foundation.layout.Box
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.FusedLocationProviderClient
 import android.location.Location
+import android.util.Log
+import androidx.compose.runtime.LaunchedEffect
+import com.google.android.gms.location.CurrentLocationRequest
+import com.google.android.gms.tasks.CancellationTokenSource
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.Priority
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationResult
 
 class MainActivity : ComponentActivity() {
 
     // Declare a Fused Location Provider client that will be initialized in onCreate() (Android Developers Get the last known location)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
+
+    // Store the device's retrieved coordinates as observable Compose state
+    // When this value changes, composables reading it can recompose (Android Developers State and Jetpack Compose)
+    private var deviceLocation by mutableStateOf<LatLng?>(null)
+
+    // Configure continuous location tracking with balanced power consumption
+    // Priority.PRIORITY_BALANCED_POWER_ACCURACY balances location accuracy
+    // with battery efficiency by avoiding unnecessary high-accuracy requests
+    // (Google for Developers - LocationRequest.Builder, Priority)
+    private val trackingLocationRequest = LocationRequest.Builder(
+        Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+        5000L
+    )
+        .setMinUpdateIntervalMillis(2000L)
+        .build()
+
+    // Receive location updates while continuous tracking is active
+    // (Google for Developers - LocationCallback)
+    private val locationCallback = object : LocationCallback() {
+
+        // Called when the Fused Location Provider delivers location updates
+        override fun onLocationResult(locationResult: LocationResult) {
+
+            // Retrieve the most recent location from the result (Google Developers - LocationResult)
+            val location = locationResult.lastLocation
+
+            if (location != null) {
+
+                // Update Compose state with the latest coordinates
+                // MapScreen will respond by updating the map camera
+                deviceLocation = LatLng(
+                    location.latitude,
+                    location.longitude
+                )
+
+                // Display the coordinates in Logcat for testing
+                Log.d(
+                    "LocationTracker",
+                    "Tracking Latitude: ${location.latitude}, Longitude: ${location.longitude}"
+                )
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,16 +106,25 @@ class MainActivity : ComponentActivity() {
                             .padding(innerPadding)
                     ) {
 
-                        // MapScreen appears first, display the interactive Google Map as the background behind other elements
+                        // Pass the device's location state to MapScreen so the map can respond to coordinate changes (Android Developers - State Hoisting)
                         MapScreen(
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            deviceLocation = deviceLocation
                         )
 
-                        // Display the permission controls and receive notification when permission is granted
+                        // Display location permission controls and tracking buttons (Android Developers - State hoisting)
                         LocationPermissionScreen(
                             onPermissionGranted = {
-                                // Location permission has been granted
-                                // The Activity will retrieve the device's location here in a later step
+                                // Retrieve the device's current location after permission is granted
+                                getCurrentDeviceLocation()
+                            },
+                            onStartTracking = {
+                                // Begin continuous location updates
+                                startLocationTracking()
+                            },
+                            onStopTracking = {
+                                // Stop continuous location updates
+                                stopLocationTracking()
                             }
                         )
                     }
@@ -72,8 +132,8 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    // Retrieve the device's last known location after verifying location permissions
-    private fun getLastKnownLocation() {
+    // Request the device's current location after verifying the location permissions
+    private fun getCurrentDeviceLocation() {
         // Verify whether FINE or COARSE location permission was granted
         val hasFineLocationPermission = ContextCompat.checkSelfPermission(
             this,
@@ -90,17 +150,145 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // Configure a current-location request that does not accept cached locations (Google Developers - CurrentLocationRequest.Builder)
+        val currentLocationRequest = CurrentLocationRequest.Builder()
+            .setMaxUpdateAgeMillis(0L)
+            .build()
+
+        // Create a cancellation token source for the current-location request (Google for Developers - CancellationTokenSource (Kotlin))
+        // The token allows the request to be canceled if necessary
+        val cancellationTokenSource = CancellationTokenSource()
+
+        // Request a current location using the configured request and cancellation token
+        // The result is returned asynchronously through addOnSuccessListener
+        // (Google for Developers - FusedLocationProviderClient)
+        fusedLocationClient.getCurrentLocation(currentLocationRequest, cancellationTokenSource.token)
+            .addOnSuccessListener { location: Location? ->
+
+                if (location != null) {
+                    // Display the retrieved current location's latitude and longitude in Logcat (Android Developers Location Class)
+                    // Log.d writes a debug message using a tag to identify the application (Android Developers Log)
+                    Log.d(
+                        "LocationTracker",
+                        "Latitude: ${location.latitude}, Longitude: ${location.longitude}"
+                    )
+
+                    // Convert the retrieved Android Location coordinates into a Google Maps LatLng object
+                    // Update the observable state so MapScreen can respond to the new coordinates
+                    // (Android Developers - Location, Google Maps - LatLng, Android Developers - State and Jetpack Compose)
+                    deviceLocation = LatLng(
+                        location.latitude,
+                        location.longitude
+                    )
+                }
+                else {
+                    // Log a message when the current-location request returns no location
+                    Log.d(
+                        "LocationTracker",
+                        "No current location is available"
+                    )
+                }
+
+            }
+
+            .addOnFailureListener { exception ->
+                // Log an error if the Fused Location Provider request fails
+                Log.e(
+                    "LocationTracker",
+                    "Failed to retrieve the current location",
+                    exception
+                )
+            }
+    }
+
+    // Start receiving continuous location updates using the Fused Location Provider
+    // LocationRequest defines the update frequency and location accuracy settings
+    // (Google for Developers - FusedLocationProviderClient;
+    // Android Developers - Request location updates)
+    private fun startLocationTracking() {
+
+        // Verify that the application has location permission
+        val hasFineLocationPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val hasCoarseLocationPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        // Do not start tracking without location permission
+        if (!hasFineLocationPermission && !hasCoarseLocationPermission) {
+            return
+        }
+
+        // Request continuous location updates using the configured request
+        // Deliver the results to locationCallback on the main thread
+        fusedLocationClient.requestLocationUpdates(
+            trackingLocationRequest,
+            locationCallback,
+            mainLooper
+        )
+
+        // Record that continuous tracking has been requested
+        Log.d("LocationTracker", "Continuous location tracking requested")
+    }
+
+    // Stop continuous location updates when tracking is no longer needed
+    // (Google for Developers - FusedLocationProviderClient)
+    private fun stopLocationTracking() {
+
+        // Unregister the location callback to stop receiving location updates
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+            .addOnSuccessListener {
+                // Confirm that the location update removal succeeded
+                Log.d("LocationTracker", "Continuous location tracking stopped")
+            }
+            .addOnFailureListener { exception ->
+                // Log an error if location updates could not be removed
+                Log.e(
+                    "LocationTracker",
+                    "Failed to stop location tracking",
+                    exception
+                )
+            }
+    }
+
+    // Release location updates when MainActivity is destroyed
+    // (Android Developers - Activity lifecycle)
+    override fun onDestroy() {
+
+        // Remove the registered location callback to prevent unnecessary
+        // location updates after the Activity is destroyed
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+
+        // Complete the normal Activity destruction process
+        super.onDestroy()
     }
 }
 
 // MapScreen implementation adapted from the Google Maps Compose documentation
 @Composable
-fun MapScreen(modifier: Modifier = Modifier) {
+fun MapScreen(modifier: Modifier = Modifier, deviceLocation: LatLng? = null) {
     // Initial map location from Google's Maps Compose example
     val singapore = LatLng(1.35, 103.87)
 
+    // Control the map camera using CameraPositionState (Google Maps Compose - Controlling a map's camera)
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(singapore, 10f)
+    }
+
+    // Respond when the device's location becomes available or changes (Android Developers - LaunchedEffect)
+    LaunchedEffect(deviceLocation) {
+
+        // Only update the camera when valid coordinates are available
+        if (deviceLocation != null) {
+
+            // Move the map camera to the device's coordinates at zoom level 15
+            cameraPositionState.position =
+                CameraPosition.fromLatLngZoom(deviceLocation, 15f)
+        }
     }
 
     GoogleMap(
@@ -112,7 +300,11 @@ fun MapScreen(modifier: Modifier = Modifier) {
 // Request foreground location permissions using Android's Activity Result API
 // (Kemal Codes Jetpack Compose Tutorial, Android Developers Compose and other libraries, Jetpack Compose state hoisting)
 @Composable
-fun LocationPermissionScreen(modifier: Modifier = Modifier, onPermissionGranted: () -> Unit = {}) {
+fun LocationPermissionScreen(
+    modifier: Modifier = Modifier,
+    onPermissionGranted: () -> Unit = {},
+    onStartTracking: () -> Unit = {},
+    onStopTracking: () -> Unit = {}) {
 
     // Get the current Android Context to obtain access to application resources and system services
     val context = LocalContext.current
@@ -181,5 +373,21 @@ fun LocationPermissionScreen(modifier: Modifier = Modifier, onPermissionGranted:
             else
                 "Location permission is needed to track your position"
         )
+
+        // Allow the user to start continuous location tracking
+        Button(
+            onClick = onStartTracking,
+            enabled = hasLocationPermission
+        ) {
+            Text("Start Tracking")
+        }
+
+        // Allow the user to stop continuous location tracking
+        Button(
+            onClick = onStopTracking,
+            enabled = hasLocationPermission
+        ) {
+            Text("Stop Tracking")
+        }
     }
 }
