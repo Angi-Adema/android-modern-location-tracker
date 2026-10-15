@@ -39,6 +39,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.Priority
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationResult
+import android.content.Intent
 
 class MainActivity : ComponentActivity() {
 
@@ -119,12 +120,16 @@ class MainActivity : ComponentActivity() {
                                 getCurrentDeviceLocation()
                             },
                             onStartTracking = {
-                                // Begin continuous location updates
-                                startLocationTracking()
+                                // Start the foreground service while the Activity is visible so location updates can continue when the app is running in the background
+                                // (Android Developers - Launch a foreground service)
+                                val serviceIntent = Intent(this@MainActivity, LocationTrackingService::class.java)
+                                ContextCompat.startForegroundService(this@MainActivity, serviceIntent)
                             },
                             onStopTracking = {
-                                // Stop continuous location updates
-                                stopLocationTracking()
+                                // Stop the foreground service and release its location updates
+                                // (Android Developers - Services overview)
+                                val serviceIntent = Intent(this@MainActivity, LocationTrackingService::class.java)
+                                stopService(serviceIntent)
                             }
                         )
                     }
