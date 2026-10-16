@@ -43,7 +43,8 @@ import android.app.PendingIntent
 
 class MainActivity : ComponentActivity() {
 
-    // Declare a Fused Location Provider client that will be initialized in onCreate() (Android Developers Get the last known location)
+    // Declare a Fused Location Provider client that will be initialized in onCreate()
+    // (Android Developers - Get the last known location)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
     // Client used to register and manage geographic boundaries
@@ -72,7 +73,7 @@ class MainActivity : ComponentActivity() {
         // Trigger an entry event if the device is already inside the geofence
         .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
 
-        // Add the Aurora test geofence to the monitoring request
+        // Add the Aurora, CO geofence test to the monitoring request
         .addGeofence(testGeofence)
         .build()
 
@@ -106,6 +107,25 @@ class MainActivity : ComponentActivity() {
         // Initialize the geofencing client using the Activity context
         // (Android Developers - Create and monitor geofences)
         geofencingClient = LocationServices.getGeofencingClient(this)
+
+        // Check whether the user previously granted precise or approximate location permission when the application starts
+        // (Android Developers - Request location permissions)
+        val hasFineLocationPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val hasCoarseLocationPermission = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        // Automatically retrieve the current device location when permission has already been granted, allowing the map to center on the device
+        // without requiring the user to request permission again
+        // (Google for Developers - FusedLocationProviderClient)
+        if (hasFineLocationPermission || hasCoarseLocationPermission) {
+            getCurrentDeviceLocation()
+        }
 
         enableEdgeToEdge()
         setContent {
@@ -149,10 +169,17 @@ class MainActivity : ComponentActivity() {
                                 registerGeofence()
                             },
                             onStopTracking = {
-                                // Stop the foreground service and release its location updates
+                                // Stop the foreground service and release its continuous location updates
                                 // (Android Developers - Services overview)
-                                val serviceIntent = Intent(this@MainActivity, LocationTrackingService::class.java)
+                                val serviceIntent = Intent(
+                                    this@MainActivity,
+                                    LocationTrackingService::class.java
+                                )
                                 stopService(serviceIntent)
+
+                                // Remove the registered geofence to stop monitoring entry and exit events
+                                // (Google for Developers - GeofencingClient)
+                                removeGeofence()
                             }
                         )
                     }
@@ -178,9 +205,45 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Configure a current-location request that does not accept cached locations (Google Developers - CurrentLocationRequest.Builder)
+        // Retrieve the last known location from the Fused Location Provider
+        // (Android Developers - Get the last known location)
+        fusedLocationClient.lastLocation
+            .addOnSuccessListener { location: Location? ->
+                if (location != null) {
+
+                    // Log the retrieved coordinates
+                    Log.d(
+                        "LocationTracker",
+                        "Last known Latitude: ${location.latitude}, Longitude: ${location.longitude}"
+                    )
+
+                    // Convert the last known location into Google Maps coordinates
+                    // Update Compose state so MapScreen can center the camera on the device
+                    // (Google Maps - LatLng, Android Developers - State and Jetpack Compose)
+                    deviceLocation = LatLng(
+                        location.latitude,
+                        location.longitude
+                    )
+
+                } else {
+                    Log.d(
+                        "LocationTracker",
+                        "No last known location is available"
+                    )
+                }
+            }
+            .addOnFailureListener { exception ->
+                Log.e(
+                    "LocationTracker",
+                    "Failed to retrieve last known location",
+                    exception
+                )
+            }
+
+        // Configure a current-location request that can use a recently cached location if one is available, reducing the need for a new location fix
+        // (Google for Developers - CurrentLocationRequest.Builder)
         val currentLocationRequest = CurrentLocationRequest.Builder()
-            .setMaxUpdateAgeMillis(0L)
+            .setMaxUpdateAgeMillis(30000L)
             .build()
 
         // Create a cancellation token source for the current-location request (Google for Developers - CancellationTokenSource (Kotlin))
@@ -194,8 +257,8 @@ class MainActivity : ComponentActivity() {
             .addOnSuccessListener { location: Location? ->
 
                 if (location != null) {
-                    // Display the retrieved current location's latitude and longitude in Logcat (Android Developers Location Class)
-                    // Log.d writes a debug message using a tag to identify the application (Android Developers Log)
+                    // Display the retrieved current location's latitude and longitude in Logcat (Android Developers - Location Class)
+                    // Log.d writes a debug message using a tag to identify the application (Android Developers - Log)
                     Log.d(
                         "LocationTracker",
                         "Latitude: ${location.latitude}, Longitude: ${location.longitude}"
@@ -229,7 +292,7 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    // Register the Aurora test geofence with Google Play services
+    // Register the Aurora, CO test geofence with Google Play services
     // (Android Developers - Create and monitor geofences)
     private fun registerGeofence() {
 
@@ -262,12 +325,38 @@ class MainActivity : ComponentActivity() {
                 )
             }
     }
+
+    // Remove the registered geofence when the user stops tracking
+    // This prevents continued geofence monitoring after tracking is stopped
+    // (Google for Developers - GeofencingClient)
+    private fun removeGeofence() {
+
+        // Request removal of the geofence associated with our PendingIntent
+        // (Google for Developers - GeofencingClient.removeGeofences)
+        geofencingClient.removeGeofences(geofencePendingIntent)
+            .addOnSuccessListener {
+                // Confirm that geofence monitoring has stopped
+                Log.d(
+                    "GeofenceTracker",
+                    "Geofence removed successfully"
+                )
+            }
+            .addOnFailureListener { exception ->
+                // Log an error if Google Play services cannot remove the geofence
+                Log.e(
+                    "GeofenceTracker",
+                    "Failed to remove geofence",
+                    exception
+                )
+            }
+    }
 }
 
-// MapScreen implementation adapted from the Google Maps Compose documentation
+// MapScreen implementation adapted from the Google Maps - Compose documentation
 @Composable
 fun MapScreen(modifier: Modifier = Modifier, deviceLocation: LatLng? = null) {
-    // Initial map location from Google's Maps Compose example
+    // Initialize the map camera using the Singapore coordinates from the Google Maps Compose example until the device's current location is available
+    // (Google Maps Compose - Controlling a map's camera)
     val singapore = LatLng(1.35, 103.87)
 
     // Control the map camera using CameraPositionState (Google Maps Compose - Controlling a map's camera)
@@ -294,7 +383,7 @@ fun MapScreen(modifier: Modifier = Modifier, deviceLocation: LatLng? = null) {
 }
 
 // Request foreground location permissions using Android's Activity Result API
-// (Kemal Codes Jetpack Compose Tutorial, Android Developers Compose and other libraries, Jetpack Compose state hoisting)
+// (Kemal Codes Jetpack Compose Tutorial, Android Developers - Compose and other libraries, Jetpack Compose -  state hoisting)
 @Composable
 fun LocationPermissionScreen(
     modifier: Modifier = Modifier,

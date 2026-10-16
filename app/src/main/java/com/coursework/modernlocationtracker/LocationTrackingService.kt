@@ -59,7 +59,7 @@ class LocationTrackingService : Service() {
             if (location != null) {
 
                 // Record background tracking coordinates in Logcat
-                // This provides evidence that tracking continues outside MainActivity
+                // This shows that tracking continues outside MainActivity
                 Log.d(
                     "LocationTrackerService",
                     "Background Tracking Latitude: ${location.latitude}, Longitude: ${location.longitude}"
@@ -166,13 +166,18 @@ class LocationTrackingService : Service() {
     }
 
     // Release location updates when the foreground service is destroyed
-    // (Android Developers - Services overview;
-    // Google for Developers - FusedLocationProviderClient)
+    // (Android Developers - Services overview, Google for Developers - FusedLocationProviderClient)
     override fun onDestroy() {
 
-        // Unregister the location callback to stop receiving location updates
-        // and prevent unnecessary battery consumption
+        // Unregister the location callback to stop receiving location updates and prevent unnecessary battery consumption
         fusedLocationClient.removeLocationUpdates(locationCallback)
+
+        // Confirm that the service is being destroyed and location update removal was requested
+        // (Android Developers - Log)
+        Log.d(
+            "LocationTrackerService",
+            "Location tracking service stopped"
+        )
 
         // Complete the normal service destruction process
         super.onDestroy()

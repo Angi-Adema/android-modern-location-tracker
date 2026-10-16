@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Permissions required to access the device's location (Android Developers Request Location Permissions) -->
+    <!-- Permissions required to access the device's location (Android Developers - Request Location Permissions) -->
     <uses-permission
         android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
@@ -13,7 +13,7 @@
     <!-- (Android Developers - Create and monitor geofences) -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
-    <!-- Allow a foreground service to run for location tracking (Android Developers - Foreground service types) -->
+    <!-- Allow a foreground service to run for location tracking (Android Developers - Foreground Service Types) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <!-- Declare permission for a location-type foreground service -->

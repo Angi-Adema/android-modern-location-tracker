@@ -7,8 +7,7 @@ import android.util.Log
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
 
-// Receive geofence transition events when the device enters or exits
-// a monitored geographic area
+// Receive geofence transition events when the device enters or exits a monitored geographic area
 // (Android Developers - Create and monitor geofences)
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
