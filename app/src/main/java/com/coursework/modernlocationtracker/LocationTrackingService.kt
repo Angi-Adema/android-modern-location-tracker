@@ -147,13 +147,22 @@ class LocationTrackingService : Service() {
             trackingLocationRequest,
             locationCallback,
             Looper.getMainLooper()
-        ).addOnFailureListener { exception ->
-            Log.e(
-                "LocationTrackerService",
-                "Failed to request background location updates",
-                exception
-            )
-        }
+        )
+            // Confirm that Google Play services accepted the location update request
+            // (Google for Developers - FusedLocationProviderClient)
+            .addOnSuccessListener {
+                Log.d(
+                    "LocationTrackerService",
+                    "Location updates registered successfully"
+                )
+            }
+            .addOnFailureListener { exception ->
+                Log.e(
+                    "LocationTrackerService",
+                    "Failed to request background location updates",
+                    exception
+                )
+            }
     }
 
     // Release location updates when the foreground service is destroyed

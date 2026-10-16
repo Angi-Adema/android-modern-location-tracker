@@ -9,6 +9,10 @@
     <uses-permission
         android:name="android.permission.ACCESS_FINE_LOCATION" />
 
+    <!-- Allow geofence transitions to be detected while the app is in the background -->
+    <!-- (Android Developers - Create and monitor geofences) -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
     <!-- Allow a foreground service to run for location tracking (Android Developers - Foreground service types) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
@@ -37,6 +41,13 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location" />
+
+        <!-- Register the receiver that handles geofence entry and exit events -->
+        <!-- (Android Developers - Create and monitor geofences) -->
+        <receiver
+            android:name=".GeofenceBroadcastReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <activity
             android:name=".MainActivity"

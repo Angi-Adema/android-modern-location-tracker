@@ -35,65 +35,77 @@ import android.util.Log
 import androidx.compose.runtime.LaunchedEffect
 import com.google.android.gms.location.CurrentLocationRequest
 import com.google.android.gms.tasks.CancellationTokenSource
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.Priority
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationResult
 import android.content.Intent
+import com.google.android.gms.location.GeofencingClient
+import com.google.android.gms.location.Geofence
+import com.google.android.gms.location.GeofencingRequest
+import android.app.PendingIntent
 
 class MainActivity : ComponentActivity() {
 
     // Declare a Fused Location Provider client that will be initialized in onCreate() (Android Developers Get the last known location)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
-    // Store the device's retrieved coordinates as observable Compose state
-    // When this value changes, composables reading it can recompose (Android Developers State and Jetpack Compose)
-    private var deviceLocation by mutableStateOf<LatLng?>(null)
+    // Client used to register and manage geographic boundaries
+    // (Google for Developers - GeofencingClient)
+    private lateinit var geofencingClient: GeofencingClient
 
-    // Configure continuous location tracking with balanced power consumption
-    // Priority.PRIORITY_BALANCED_POWER_ACCURACY balances location accuracy
-    // with battery efficiency by avoiding unnecessary high-accuracy requests
-    // (Google for Developers - LocationRequest.Builder, Priority)
-    private val trackingLocationRequest = LocationRequest.Builder(
-        Priority.PRIORITY_BALANCED_POWER_ACCURACY,
-        5000L
-    )
-        .setMinUpdateIntervalMillis(2000L)
+    // Define a circular geofence around the emulator's test location
+    // (Android Developers - Create and monitor geofences)
+    private val testGeofence = Geofence.Builder()
+        .setRequestId("aurora_geofence")
+        .setCircularRegion(
+            39.7057417,
+            -104.7587717,
+            150f
+        )
+        .setExpirationDuration(Geofence.NEVER_EXPIRE)
+        .setTransitionTypes(
+            Geofence.GEOFENCE_TRANSITION_ENTER or
+                    Geofence.GEOFENCE_TRANSITION_EXIT
+        )
         .build()
 
-    // Receive location updates while continuous tracking is active
-    // (Google for Developers - LocationCallback)
-    private val locationCallback = object : LocationCallback() {
+    // Configure a request to monitor the defined geofence
+    // (Android Developers - Create and monitor geofences)
+    private val geofencingRequest = GeofencingRequest.Builder()
+        // Trigger an entry event if the device is already inside the geofence
+        .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
 
-        // Called when the Fused Location Provider delivers location updates
-        override fun onLocationResult(locationResult: LocationResult) {
+        // Add the Aurora test geofence to the monitoring request
+        .addGeofence(testGeofence)
+        .build()
 
-            // Retrieve the most recent location from the result (Google Developers - LocationResult)
-            val location = locationResult.lastLocation
+    // Create a PendingIntent to deliver geofence events to the BroadcastReceiver
+    // (Android Developers - Create and monitor geofences)
+    private val geofencePendingIntent: PendingIntent by lazy {
 
-            if (location != null) {
+        // Identify the receiver that handles geofence entry and exit events
+        val intent = Intent(this, GeofenceBroadcastReceiver::class.java)
 
-                // Update Compose state with the latest coordinates
-                // MapScreen will respond by updating the map camera
-                deviceLocation = LatLng(
-                    location.latitude,
-                    location.longitude
-                )
-
-                // Display the coordinates in Logcat for testing
-                Log.d(
-                    "LocationTracker",
-                    "Tracking Latitude: ${location.latitude}, Longitude: ${location.longitude}"
-                )
-            }
-        }
+        // Allow Google Play services to deliver geofence events to the receiver
+        PendingIntent.getBroadcast(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        )
     }
+
+    // Store the device's retrieved coordinates as observable Compose state
+    // When this value changes, composables reading it can recompose
+    // (Android Developers - State and Jetpack Compose)
+    private var deviceLocation by mutableStateOf<LatLng?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // Initialize the location client using the current Activity as the Context
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+        // Initialize the geofencing client using the Activity context
+        // (Android Developers - Create and monitor geofences)
+        geofencingClient = LocationServices.getGeofencingClient(this)
 
         enableEdgeToEdge()
         setContent {
@@ -120,10 +132,21 @@ class MainActivity : ComponentActivity() {
                                 getCurrentDeviceLocation()
                             },
                             onStartTracking = {
-                                // Start the foreground service while the Activity is visible so location updates can continue when the app is running in the background
+                                // Start the foreground service while the Activity is visible
+                                // so location updates can continue when the app is in the background
                                 // (Android Developers - Launch a foreground service)
-                                val serviceIntent = Intent(this@MainActivity, LocationTrackingService::class.java)
-                                ContextCompat.startForegroundService(this@MainActivity, serviceIntent)
+                                val serviceIntent = Intent(
+                                    this@MainActivity,
+                                    LocationTrackingService::class.java
+                                )
+                                ContextCompat.startForegroundService(
+                                    this@MainActivity,
+                                    serviceIntent
+                                )
+
+                                // Register the geofence when location tracking begins
+                                // (Android Developers - Create and monitor geofences)
+                                registerGeofence()
                             },
                             onStopTracking = {
                                 // Stop the foreground service and release its location updates
@@ -206,70 +229,38 @@ class MainActivity : ComponentActivity() {
             }
     }
 
-    // Start receiving continuous location updates using the Fused Location Provider
-    // LocationRequest defines the update frequency and location accuracy settings
-    // (Google for Developers - FusedLocationProviderClient;
-    // Android Developers - Request location updates)
-    private fun startLocationTracking() {
+    // Register the Aurora test geofence with Google Play services
+    // (Android Developers - Create and monitor geofences)
+    private fun registerGeofence() {
 
-        // Verify that the application has location permission
+        // Geofencing requires precise location permission
         val hasFineLocationPermission = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
 
-        val hasCoarseLocationPermission = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-
-        // Do not start tracking without location permission
-        if (!hasFineLocationPermission && !hasCoarseLocationPermission) {
+        // Do not register the geofence without precise location permission
+        if (!hasFineLocationPermission) {
+            Log.e("GeofenceTracker", "Precise location permission is required")
             return
         }
 
-        // Request continuous location updates using the configured request
-        // Deliver the results to locationCallback on the main thread
-        fusedLocationClient.requestLocationUpdates(
-            trackingLocationRequest,
-            locationCallback,
-            mainLooper
+        // Register the geofence and specify where transition events are delivered
+        // (Google for Developers - GeofencingClient)
+        geofencingClient.addGeofences(
+            geofencingRequest,
+            geofencePendingIntent
         )
-
-        // Record that continuous tracking has been requested
-        Log.d("LocationTracker", "Continuous location tracking requested")
-    }
-
-    // Stop continuous location updates when tracking is no longer needed
-    // (Google for Developers - FusedLocationProviderClient)
-    private fun stopLocationTracking() {
-
-        // Unregister the location callback to stop receiving location updates
-        fusedLocationClient.removeLocationUpdates(locationCallback)
             .addOnSuccessListener {
-                // Confirm that the location update removal succeeded
-                Log.d("LocationTracker", "Continuous location tracking stopped")
+                Log.d("GeofenceTracker", "Geofence registered successfully")
             }
             .addOnFailureListener { exception ->
-                // Log an error if location updates could not be removed
                 Log.e(
-                    "LocationTracker",
-                    "Failed to stop location tracking",
+                    "GeofenceTracker",
+                    "Failed to register geofence",
                     exception
                 )
             }
-    }
-
-    // Release location updates when MainActivity is destroyed
-    // (Android Developers - Activity lifecycle)
-    override fun onDestroy() {
-
-        // Remove the registered location callback to prevent unnecessary
-        // location updates after the Activity is destroyed
-        fusedLocationClient.removeLocationUpdates(locationCallback)
-
-        // Complete the normal Activity destruction process
-        super.onDestroy()
     }
 }
 
